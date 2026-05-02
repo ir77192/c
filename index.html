@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JS 배기음 시뮬레이터</title>
+    <style>
+        /* CSS 영역 */
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .dashboard {
+            text-align: center;
+            border: 5px solid #333;
+            padding: 40px;
+            border-radius: 50%;
+            width: 300px;
+            height: 300px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            box-shadow: 0 0 50px rgba(255, 69, 0, 0.2);
+        }
+
+        #rpm-display {
+            font-size: 4rem;
+            font-weight: bold;
+            color: #ff4500;
+            text-shadow: 0 0 10px #ff4500;
+        }
+
+        .label {
+            font-size: 1.2rem;
+            color: #888;
+            margin-top: -10px;
+        }
+
+        #gas-pedal {
+            margin-top: 50px;
+            width: 120px;
+            height: 200px;
+            background: linear-gradient(to bottom, #444, #222);
+            border: 2px solid #555;
+            border-radius: 10px;
+            cursor: pointer;
+            outline: none;
+            transition: transform 0.1s;
+            box-shadow: 0 10px 0 #000;
+        }
+
+        #gas-pedal:active {
+            transform: translateY(8px) rotateX(20deg);
+            box-shadow: 0 2px 0 #000;
+            background: linear-gradient(to bottom, #555, #333);
+        }
+
+        .info {
+            margin-top: 30px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <div id="rpm-display">800</div>
+        <div class="label">RPM</div>
+    </div>
+
+    <button id="gas-pedal"></button>
+    
+    <div class="info">페달을 꾹 누르거나 'Space' 키를 눌러라</div>
+
+    <script>
+        /* JavaScript 영역 */
+        let audioCtx;
+        let mainOsc;
+        let subOsc;
+        let gainNode;
+        let rpm = 800;
+        let isAccelerating = false;
+
+        const rpmDisplay = document.getElementById('rpm-display');
+        const pedal = document.getElementById('gas-pedal');
+
+        // 오디오 초기화 (사용자 상호작용 후 실행)
+        function initAudio() {
+            if (audioCtx) return;
+
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // 메인 엔진 소리 (톱니파)
+            mainOsc = audioCtx.createOscillator();
+            mainOsc.type = 'sawtooth';
+            
+            // 서브 중저음 소리 (삼각파)
+            subOsc = audioCtx.createOscillator();
+            subOsc.type = 'triangle';
+
+            gainNode = audioCtx.createGain();
+            gainNode.gain.value = 0.15;
+
+            // 저역 통과 필터 (너무 찢어지는 소리 방지)
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 1000;
+
+            mainOsc.connect(filter);
+            subOsc.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            mainOsc.start();
+            subOsc.start();
+        }
+
+        // 메인 루프 (RPM 계산 및 사운드 변조)
+        function update() {
+            if (isAccelerating) {
+                // 가속: 8000 RPM 타겟
+                rpm += (8000 - rpm) * 0.07;
+            } else {
+                // 감속: 800 RPM 타겟 (아이들링)
+                rpm += (800 - rpm) * 0.03;
+            }
+
+            // 화면 표시 업데이트
+            rpmDisplay.innerText = Math.floor(rpm);
+
+            // 오디오 파라미터 실시간 조정
+            if (mainOsc && audioCtx) {
+                const now = audioCtx.currentTime;
+                // RPM에 따른 주파수 매핑
+                const baseFreq = 30 + (rpm / 60);
+                mainOsc.frequency.setTargetAtTime(baseFreq, now, 0.05);
+                subOsc.frequency.setTargetAtTime(baseFreq * 0.5, now, 0.05);
+                
+                // 고속 회전 시 소리가 더 커지고 필터가 열리게 설정
+                gainNode.gain.setTargetAtTime(0.1 + (rpm / 20000), now, 0.05);
+            }
+
+            requestAnimationFrame(update);
+        }
+
+        // 제어 이벤트
+        const startAccel = (e) => {
+            if (e.repeat) return; // 키보드 꾹 누를 때 중복 실행 방지
+            initAudio();
+            isAccelerating = true;
+        };
+
+        const stopAccel = () => {
+            isAccelerating = false;
+        };
+
+        // 마우스 & 터치
+        pedal.addEventListener('mousedown', startAccel);
+        window.addEventListener('mouseup', stopAccel);
+        pedal.addEventListener('touchstart', (e) => { e.preventDefault(); startAccel(e); });
+        window.addEventListener('touchend', stopAccel);
+
+        // 키보드 (스페이스바)
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') startAccel(e);
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') stopAccel();
+        });
+
+        // 애니메이션 시작
+        update();
+    </script>
+</body>
+</html>
