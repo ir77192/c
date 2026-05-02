@@ -3,70 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>리얼 변속 엔진 시뮬레이터</title>
+    <title>8단 리얼 변속 시뮬레이터</title>
     <style>
         body {
-            background-color: #0a0a0a;
-            color: #eee;
+            background-color: #050505;
+            color: #fff;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             height: 100vh;
             margin: 0;
-            font-family: 'Segoe UI', sans-serif;
+            font-family: 'Arial Black', sans-serif;
             user-select: none;
         }
 
         .cluster {
-            background: radial-gradient(circle, #222 0%, #000 100%);
-            padding: 50px;
-            border-radius: 50%;
-            border: 8px solid #333;
             text-align: center;
-            width: 350px;
-            height: 350px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            position: relative;
-            box-shadow: 0 0 100px rgba(255, 0, 0, 0.1);
+            border: 10px solid #222;
+            padding: 60px;
+            border-radius: 40px;
+            background: #000;
+            box-shadow: inset 0 0 50px #111, 0 20px 50px rgba(0,0,0,0.8);
         }
 
-        #rpm-needle {
-            position: absolute;
-            width: 2px;
-            height: 140px;
-            background: red;
-            bottom: 50%;
-            left: 50%;
-            transform-origin: bottom;
-            transition: transform 0.05s linear;
-        }
+        #gear-num { font-size: 5rem; color: #ff0000; line-height: 1; }
+        #rpm-num { font-size: 6rem; margin: 10px 0; font-variant-numeric: tabular-nums; }
+        .unit { color: #444; font-size: 1.2rem; letter-spacing: 3px; }
 
-        #rpm-num { font-size: 5rem; font-weight: 900; color: #fff; margin: 0; }
-        #gear-num { font-size: 3rem; color: #ff4500; font-weight: bold; }
-        
-        .redline { color: #ff0000 !important; animation: shake 0.1s infinite; }
-
-        @keyframes shake {
-            0% { transform: translate(1px, 1px); }
-            50% { transform: translate(-1px, -1px); }
-            100% { transform: translate(1px, -1px); }
-        }
-
-        .pedals { display: flex; gap: 40px; margin-top: 50px; }
+        .pedals { display: flex; gap: 30px; margin-top: 40px; }
         .pedal {
-            width: 70px; height: 160px;
-            background: #222; border: 2px solid #444;
-            border-radius: 5px; display: flex;
+            width: 80px; height: 180px;
+            background: #1a1a1a; border: 3px solid #333;
+            border-radius: 10px; display: flex;
             align-items: center; justify-content: center;
-            font-weight: bold; color: #666;
+            color: #444; font-size: 0.8rem;
         }
-        .active { background: #444; transform: translateY(10px) rotateX(20deg); color: #fff; }
+        .active { background: #333; color: #fff; border-color: #555; transform: translateY(10px); }
 
-        .guide { margin-top: 30px; color: #444; text-align: center; line-height: 1.6; }
-        b { color: #888; }
+        .guide { margin-top: 40px; color: #555; text-align: center; font-size: 0.9rem; font-family: sans-serif; }
+        .redline { color: #ff4d4d !important; text-shadow: 0 0 20px #ff0000; }
     </style>
 </head>
 <body>
@@ -74,32 +50,36 @@
     <div class="cluster">
         <div id="gear-num">1</div>
         <div id="rpm-num">800</div>
-        <div style="color: #444; letter-spacing: 5px;">RPM x 1000</div>
+        <div class="unit">RPM / GEAR 8-SPEED</div>
     </div>
 
     <div class="pedals">
-        <div id="clutch-pedal" class="pedal">CLUTCH</div>
-        <div id="gas-pedal" class="pedal" style="height: 190px;">GAS</div>
+        <div id="clutch" class="pedal">CLUTCH</div>
+        <div id="gas" class="pedal" style="height: 210px;">GAS</div>
     </div>
 
     <div class="guide">
-        <b>[Space]</b> 풀악셀 / <b>[W]</b> 기어 업 / <b>[S]</b> 기어 다운<br>
-        실제 차처럼 변속 시 RPM이 툭 떨어지는 맛을 살림
+        <b>[Space]</b> 가속 / <b>[W]</b> 업쉬프트 / <b>[S]</b> 다운쉬프트<br>
+        다운쉬프트 시 자동으로 RPM이 보정(Rev-matching)됩니다.
     </div>
 
     <script>
-        let audioCtx, mainOsc, gainNode, filter;
+        let audioCtx, mainOsc, subOsc, gainNode, filter;
         let rpm = 800;
         let gear = 1;
         let isGas = false;
         let isShifting = false;
 
+        // 8단 기어비 및 설정 (숫자가 낮을수록 고단 부하)
         const gearConfigs = {
-            1: { ratio: 0.04, max: 6000, drop: 0.5 },
-            2: { ratio: 0.025, max: 7000, drop: 0.6 },
-            3: { ratio: 0.018, max: 8000, drop: 0.7 },
-            4: { ratio: 0.012, max: 8500, drop: 0.8 },
-            5: { ratio: 0.008, max: 9000, drop: 0.85 }
+            1: { ratio: 0.05, max: 7000, nextRpm: 0.6 },
+            2: { ratio: 0.035, max: 7200, nextRpm: 0.65 },
+            3: { ratio: 0.025, max: 7500, nextRpm: 0.7 },
+            4: { ratio: 0.018, max: 7800, nextRpm: 0.75 },
+            5: { ratio: 0.014, max: 8000, nextRpm: 0.8 },
+            6: { ratio: 0.011, max: 8200, nextRpm: 0.82 },
+            7: { ratio: 0.009, max: 8400, nextRpm: 0.85 },
+            8: { ratio: 0.007, max: 8500, nextRpm: 0.9 }
         };
 
         function initAudio() {
@@ -108,38 +88,54 @@
             
             filter = audioCtx.createBiquadFilter();
             filter.type = "lowpass";
-            filter.frequency.value = 800;
 
             mainOsc = audioCtx.createOscillator();
             mainOsc.type = 'sawtooth';
+
+            subOsc = audioCtx.createOscillator();
+            subOsc.type = 'square'; // 엔진의 묵직한 질감
 
             gainNode = audioCtx.createGain();
             gainNode.gain.value = 0;
 
             mainOsc.connect(filter);
+            subOsc.connect(filter);
             filter.connect(gainNode);
             gainNode.connect(audioCtx.destination);
 
             mainOsc.start();
+            subOsc.start();
         }
 
-        function shiftGear(dir) {
+        function changeGear(dir) {
             if (isShifting) return;
             const next = gear + dir;
-            if (next >= 1 && next <= 5) {
+            if (next >= 1 && next <= 8) {
                 isShifting = true;
-                document.getElementById('clutch-pedal').classList.add('active');
-                
-                // 변속 시 사운드 일시 차단 및 RPM 보정
-                const oldGear = gear;
-                gear = next;
-                
+                const now = audioCtx.currentTime;
+                document.getElementById('clutch').classList.add('active');
+
+                // 소리 연결을 위한 부드러운 페이드 아웃
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+
                 setTimeout(() => {
-                    if (dir > 0) rpm = rpm * (gearConfigs[oldGear].drop); // 변속 충격/하강
+                    if (dir > 0) {
+                        // 업쉬프트: RPM 하강
+                        rpm = rpm * gearConfigs[gear].nextRpm;
+                    } else {
+                        // 다운쉬프트: RPM 보정 (Rev-match)
+                        rpm = rpm / gearConfigs[next].nextRpm;
+                        if (rpm > gearConfigs[next].max) rpm = gearConfigs[next].max - 200;
+                    }
+
+                    gear = next;
                     document.getElementById('gear-num').innerText = gear;
-                    document.getElementById('clutch-pedal').classList.remove('active');
+                    document.getElementById('clutch').classList.remove('active');
+                    
+                    // 소리 다시 페이드 인
+                    gainNode.gain.exponentialRampToValueAtTime(0.1 + (rpm / 20000), audioCtx.currentTime + 0.1);
                     isShifting = false;
-                }, 150); // 0.15초 변속 딜레이
+                }, 120); 
             }
         }
 
@@ -147,65 +143,46 @@
             const config = gearConfigs[gear];
 
             if (isShifting) {
-                // 변속 중엔 RPM이 관성으로 아주 살짝 떨어짐
-                rpm -= 50;
+                rpm -= 30; // 변속 중 미세 하강
             } else if (isGas) {
-                // 가속: 현재 RPM이 높을수록 가속력이 줄어드는 물리 적용
-                let acceleration = (config.max - rpm) * config.ratio;
-                rpm += acceleration;
-                
-                // 레드존 진입 시 퓨얼컷(부들부들) 효과
-                if (rpm >= config.max - 100) {
-                    rpm -= 200; 
-                }
+                rpm += (config.max - rpm) * config.ratio;
+                // 퓨얼컷 (레드존 떨림)
+                if (rpm >= config.max - 50) rpm -= 150;
             } else {
-                // 엔진 브레이크 & 아이들링
-                rpm -= (rpm - 800) * 0.03 + 5;
+                rpm -= (rpm - 800) * 0.04 + 10;
             }
 
             if (rpm < 800) rpm = 800;
 
-            // UI 업데이트
+            // UI
             const rpmText = document.getElementById('rpm-num');
             rpmText.innerText = Math.floor(rpm);
-            if (rpm > 7000) rpmText.classList.add('redline');
+            if (rpm > config.max - 1000) rpmText.classList.add('redline');
             else rpmText.classList.remove('redline');
 
-            // 소리 업데이트
-            if (audioCtx) {
+            // Sound
+            if (audioCtx && !isShifting) {
                 const now = audioCtx.currentTime;
-                // 변속 중엔 볼륨 확 줄임
-                const targetGain = isShifting ? 0.02 : (0.1 + (rpm / 20000));
-                gainNode.gain.setTargetAtTime(targetGain, now, 0.03);
-
-                // RPM에 따른 주파수 및 필터 개방
-                mainOsc.frequency.setTargetAtTime(25 + (rpm / 55), now, 0.05);
-                filter.frequency.setTargetAtTime(500 + (rpm / 5), now, 0.05);
+                const baseFreq = 20 + (rpm / 50);
+                mainOsc.frequency.setTargetAtTime(baseFreq, now, 0.05);
+                subOsc.frequency.setTargetAtTime(baseFreq * 0.5, now, 0.05);
+                
+                gainNode.gain.setTargetAtTime(0.1 + (rpm / 18000), now, 0.05);
+                filter.frequency.setTargetAtTime(400 + (rpm / 4), now, 0.05);
             }
 
             requestAnimationFrame(engineLoop);
         }
 
-        // 입력 처리
-        const pressGas = (e) => {
-            if (e.repeat) return;
-            initAudio();
-            isGas = true;
-            document.getElementById('gas-pedal').classList.add('active');
-        };
-        const releaseGas = () => {
-            isGas = false;
-            document.getElementById('gas-pedal').classList.remove('active');
-        };
+        const startGas = (e) => { if (e.repeat) return; initAudio(); isGas = true; document.getElementById('gas').classList.add('active'); };
+        const stopGas = () => { isGas = false; document.getElementById('gas').classList.remove('active'); };
 
         window.addEventListener('keydown', (e) => {
-            if (e.code === 'Space') pressGas(e);
-            if (e.key.toLowerCase() === 'w') shiftGear(1);
-            if (e.key.toLowerCase() === 's') shiftGear(-1);
+            if (e.code === 'Space') startGas(e);
+            if (e.key.toLowerCase() === 'w') changeGear(1);
+            if (e.key.toLowerCase() === 's') changeGear(-1);
         });
-        window.addEventListener('keyup', (e) => {
-            if (e.code === 'Space') releaseGas();
-        });
+        window.addEventListener('keyup', (e) => { if (e.code === 'Space') stopGas(); });
 
         engineLoop();
     </script>
